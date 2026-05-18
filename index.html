@@ -718,7 +718,6 @@ function generateReport(){
   let html=`
   <div class="report-header">
     <div class="report-brand">
-      <div class="report-brand-mark"><img src="${SCI_LOGO_B64}" alt="Soil & Climate Initiative"></div>
       <div>
         <div class="report-kicker" style="margin-top:2px;">Soil & Climate Initiative</div>
         <h1>${farmName}</h1>
@@ -976,8 +975,6 @@ async function exportPDF(){
   doc.setTextColor(WH[0],WH[1],WH[2]);doc.setFont('helvetica','bold');doc.setFontSize(16);t(farmName,ml+8,y+11);
   doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(180,210,220);
   t('SCI Soil Health Report  ·  Sampled: '+sampDate+'  ·  Report: '+today,ml+8,y+19);
-  try{doc.addImage(SCI_LOGO_B64,'PNG',ml+6,y+22,20,0,'','FAST');}catch(e){}
-  
   doc.setFillColor(TE[0],TE[1],TE[2]);doc.roundedRect(W-mr-1,y,4,32,1,1,'F');
   doc.setTextColor(TE[0],TE[1],TE[2]);doc.setFont('helvetica','bold');doc.setFontSize(9);t(String(csvData.length),W-mr-10,y+11,{align:'center'});
   doc.setTextColor(180,210,220);doc.setFont('helvetica','normal');doc.setFontSize(6.5);t('SAMPLES',W-mr-10,y+17,{align:'center'});
