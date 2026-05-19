@@ -106,6 +106,14 @@ header{background:var(--midnight);padding:0 1.5rem;height:82px;display:flex;alig
 /* ── STEP 3: report ── */
 .report-wrap{padding:1.5rem 1.5rem 4rem;}
 .report{max-width:880px;margin:0 auto;}
+
+.report-controls{max-width:880px;margin:0 auto 14px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px;box-shadow:0 6px 18px rgba(0,0,0,.04);}
+.report-controls-title{font-family:var(--font-head);font-size:12px;font-weight:600;color:var(--midnight);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.report-controls-title span{font-family:var(--font-body);font-size:10px;font-weight:400;color:var(--gray-mid);}
+.report-toggle-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;}
+.report-toggle{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--eerie);background:var(--gray-lt);border:1px solid var(--border);border-radius:7px;padding:7px 9px;cursor:pointer;user-select:none;}
+.report-toggle input{accent-color:var(--midnight);}
+@media print{.report-controls{display:none!important;}}
 .report-header{background:var(--midnight);border-radius:10px;padding:1.5rem 1.75rem;margin-bottom:1.25rem;display:flex;justify-content:space-between;align-items:flex-start;gap:1.25rem;flex-wrap:wrap;}.report-brand{display:flex;align-items:flex-start;gap:16px;min-width:0;flex:1 1 520px;}.report-brand-mark{flex:0 0 auto;min-width:110px;display:flex;align-items:flex-start;justify-content:flex-start;}.report-brand-mark img{display:block;height:46px;max-width:140px;width:auto;object-fit:contain;}.report-brand h1{line-height:1.05;}
 .report-brand{display:flex;align-items:flex-start;gap:14px;min-width:0;}
 .report-brand-mark{background:rgba(255,255,255,.96);border-radius:12px;padding:8px 10px;display:flex;align-items:center;justify-content:center;box-shadow:0 10px 24px rgba(0,0,0,.10);}
@@ -368,6 +376,8 @@ const SCI_LOGO_B64='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABZAAAAJeCAYAAA
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
 let csvData=null, kmlData=null, boundaryState={}, lastReportData=null, currentStep=1;
+const REPORT_OPTION_LABELS={summary:'Summary cards',map:'Field boundary map',fieldObsWorm:'Worm count',fieldObsInfiltration:'Water infiltration',fieldObsSlake1:'Slake test 1',fieldObsSlake2:'Slake test 2',fieldObsVess:'VESS score',fieldObsCompaction:'Compaction / penetrometer',resultsTable:'Haney results table',nutrients:'Nutrient cards',aggregates:'Aggregate stability',plfa:'PLFA microbial analysis',notes:'Notes',ranges:'Standard range tables'};
+let reportOptions={summary:true,map:true,fieldObsWorm:true,fieldObsInfiltration:true,fieldObsSlake1:true,fieldObsSlake2:true,fieldObsVess:true,fieldObsCompaction:true,resultsTable:true,nutrients:true,aggregates:true,plfa:true,notes:true,ranges:true};
 
 // ── RANGES ────────────────────────────────────────────────────────────────────
 const RANGES={
@@ -698,8 +708,76 @@ function peneRating(pctOver300){
   return['Severe','pene-rating-bad'];
 }
 
+function reportControlsHTML(){
+  return '<div class="report-controls"><div class="report-controls-title">Customize report <span>Turn sections on/off before exporting PDF</span></div><div class="report-toggle-grid">'+Object.keys(REPORT_OPTION_LABELS).map(function(k){return '<label class="report-toggle"><input type="checkbox" '+(reportOptions[k]?'checked':'')+' onchange="setReportOption(\''+k+'\',this.checked)"> '+REPORT_OPTION_LABELS[k]+'</label>';}).join('')+'</div></div>';
+}
+function setReportOption(key,on){
+  reportOptions[key]=!!on;
+  if(lastReportData)generateReport(false);
+}
+function anyFieldObservationOn(){
+  return !!(reportOptions.fieldObsWorm||reportOptions.fieldObsInfiltration||reportOptions.fieldObsSlake1||reportOptions.fieldObsSlake2||reportOptions.fieldObsVess||reportOptions.fieldObsCompaction);
+}
+function fieldObservationHasVisibleData(o){
+  return !!((reportOptions.fieldObsWorm&&o.worm!==null)||(reportOptions.fieldObsInfiltration&&(o.infil.count>0||o.infil.over30>0))||(reportOptions.fieldObsSlake1&&o.slake1!==null)||(reportOptions.fieldObsSlake2&&o.slake2!==null)||(reportOptions.fieldObsVess&&o.vess)||(reportOptions.fieldObsCompaction&&o.allPene.length>0));
+}
+function yesLike(v){return /^(yes|y|true|1|over|over 30|>30|>\s*30|30\+|over thirty)$/i.test(String(v||'').trim());}
+function getAnyValue(obj,names){
+  for(const n of names){if(obj[n]!==undefined&&obj[n]!==null&&String(obj[n]).trim()!=='')return obj[n];}
+  const want=names.map(n=>String(n).toLowerCase().replace(/[^a-z0-9]/g,''));
+  for(const k of Object.keys(obj)){
+    const nk=String(k).toLowerCase().replace(/[^a-z0-9]/g,'');
+    if(want.includes(nk)&&String(obj[k]).trim()!=='')return obj[k];
+  }
+  return '';
+}
+function infiltrationOver30(s,i){
+  const exact=[
+    `water_infiltration_test_${i}_over_30_minutes`,`water_infiltration_test_${i}_over_30_min`,
+    `over_30_minutes_water_infiltration_test_${i}`,`over_30_min_water_infiltration_test_${i}`,
+    `infiltration_test_${i}_over_30_minutes`,`infiltration_reading_${i}_over_30_minutes`,
+    `water_infiltration_over_30_minutes_${i}`,`Water Infiltration Test ${i} Over 30 Minutes`,
+    `Water Infiltration Reading ${i} Over 30 Minutes`,`Over 30 Minutes Water Infiltration Test ${i}`
+  ];
+  if(yesLike(getAnyValue(s,exact)))return true;
+  const keys=Object.keys(s);
+  return keys.some(function(k){
+    const nk=String(k).toLowerCase().replace(/[^a-z0-9]/g,'');
+    return nk.includes('infil')&&nk.includes(String(i))&&(nk.includes('over30')||nk.includes('30min')||nk.includes('30minute')||nk.includes('thirty'))&&yesLike(s[k]);
+  });
+}
+function infiltrationSeconds(s,i){
+  const exact=[
+    `water_infiltration_test_${i}`,`Water Infiltration Test ${i}`,`Water infiltration test ${i}`,
+    `water_infiltration_reading_${i}`,`Water Infiltration Reading ${i}`,
+    `infiltration_test_${i}`,`Infiltration Test ${i}`,`infiltration_reading_${i}`,`Reading ${i}`
+  ];
+  let raw=getAnyValue(s,exact);
+  if(raw===''||isNaN(parseFloat(raw))){
+    for(const k of Object.keys(s)){
+      const nk=String(k).toLowerCase().replace(/[^a-z0-9]/g,'');
+      if(nk.includes('infil')&&nk.includes(String(i))&&!nk.includes('over')&&!nk.includes('30min')&&!nk.includes('30minute')){raw=s[k];break;}
+    }
+  }
+  const sec=parseFloat(raw);
+  return !isNaN(sec)&&sec>0?sec:null;
+}
+function infiltrationSummary(samples){
+  const rates=[],secs=[];let over30=0;
+  samples.forEach(function(s){
+    for(let i=1;i<=4;i++){
+      if(infiltrationOver30(s,i)){over30++;continue;}
+      const sec=infiltrationSeconds(s,i);
+      if(sec!==null){secs.push(sec);rates.push(3600/sec);}
+    }
+  });
+  const mean=function(a){return a.length?a.reduce(function(x,y){return x+y;},0)/a.length:null;};
+  const rate=mean(rates),secAvg=mean(secs);
+  return {rate:rate,seconds:secAvg,count:rates.length,over30:over30,label:rate!==null?(rate<10?rate.toFixed(2):rate.toFixed(1))+' in/hr':(over30?'>30 min':'')};
+}
+
 // ── GENERATE REPORT (HTML) ────────────────────────────────────────────────────
-function generateReport(){
+function generateReport(switchToReport=true){
   const fields=kmlData.filter(isFieldBoundary);
   const selected=fields.filter(b=>boundaryState[b.id]?.included);
   const selectedIds=selected.map(b=>b.id);
@@ -715,7 +793,7 @@ function generateReport(){
   const avgSHC =mean(aFn(csvData,'Soil Health Calculation'));
   const avgOM  =mean(aFn(csvData,'Organic Matter'));
 
-  let html=`
+  let html=reportControlsHTML()+`
   <div class="report-header">
     <div class="report-brand">
       <div>
@@ -729,13 +807,13 @@ function generateReport(){
       <div class="ml" style="margin-top:6px">Boundaries</div><div class="mv">${selected.length}</div>
     </div>
   </div>
-  <div class="summary-grid">
+  ${reportOptions.summary?`<div class="summary-grid">
     ${sc('Avg Soil pH',avgPH!=null?avgPH.toFixed(1):'—','Farm avg',getRating('1:1 Soil pH',avgPH))}
     ${sc('Soil Health Score',avgSHC!=null?avgSHC.toFixed(1):'—','Farm avg (Haney)',getRating('Soil Health Calculation',avgSHC))}
     ${sc('Avg Organic Matter',avgOM!=null?avgOM.toFixed(1)+'%':'—','Farm avg',getRating('Organic Matter',avgOM))}
     ${sc('Sample Depth','2 depths','0–6" and 6–12"',null)}
-  </div>
-  <div class="map-card">
+  </div>`:''}
+  ${reportOptions.map?`<div class="map-card">
     <div class="map-card-header">
       <h3>Field Boundary Map</h3>
       <div class="map-legend">
@@ -745,7 +823,7 @@ function generateReport(){
       </div>
     </div>
     ${buildMapSVG(860,240,kmlData,csvData,selectedIds)}
-  </div>
+  </div>`:''}
   <div class="section-head">Results by Field Boundary</div>`;
 
   groups.forEach(({boundary,samples})=>{
@@ -771,18 +849,19 @@ function generateReport(){
         var slake2=avg(ds,'%_of_soil_remaining_after_slake_test_2')||avg(ds,'slake_test_2');
         var vess=s0['vess_score']||'';
         var worm=avg(ds,'worm_count_test_1');
-        var infil=avg(ds,'water_infiltration_test_1');
-        var hasPene=allPene.length>0||slake1!==null||vess||worm!==null;
+        var infil=infiltrationSummary(ds);
+        var obsData={allPene:allPene,slake1:slake1,slake2:slake2,vess:vess,worm:worm,infil:infil};
+        var hasPene=fieldObservationHasVisibleData(obsData);
         if(hasPene){
           html+=`<div class="pene-section"><div class="pene-title">Field Observations</div>`;
           html+=`<div class="pene-grid">`;
-          if(worm!==null)html+=`<div class="pene-card"><div class="pene-card-label">Worm Count</div><div class="pene-card-val">${worm.toFixed(0)}<span class="pene-card-unit"> per m\u00b2</span></div></div>`;
-          if(infil!==null)html+=`<div class="pene-card"><div class="pene-card-label">Infiltration</div><div class="pene-card-val">${infil.toFixed(0)}<span class="pene-card-unit"> sec</span></div></div>`;
-          if(slake1!==null)html+=`<div class="pene-card"><div class="pene-card-label">Slake Test 1</div><div class="pene-card-val">${slake1.toFixed(0)}<span class="pene-card-unit">% remain</span></div></div>`;
-          if(slake2!==null)html+=`<div class="pene-card"><div class="pene-card-label">Slake Test 2</div><div class="pene-card-val">${slake2.toFixed(0)}<span class="pene-card-unit">% remain</span></div></div>`;
+          if(reportOptions.fieldObsWorm&&worm!==null)html+=`<div class="pene-card"><div class="pene-card-label">Worm Count</div><div class="pene-card-val">${worm.toFixed(0)}<span class="pene-card-unit"> per m\u00b2</span></div></div>`;
+          if(reportOptions.fieldObsInfiltration&&(infil.count>0||infil.over30>0))html+=`<div class="pene-card"><div class="pene-card-label">Infiltration</div><div class="pene-card-val">${infil.label}<span class="pene-card-unit">${infil.count>0?' avg':''}</span></div></div>`;
+          if(reportOptions.fieldObsSlake1&&slake1!==null)html+=`<div class="pene-card"><div class="pene-card-label">Slake Test 1</div><div class="pene-card-val">${slake1.toFixed(0)}<span class="pene-card-unit">% remain</span></div></div>`;
+          if(reportOptions.fieldObsSlake2&&slake2!==null)html+=`<div class="pene-card"><div class="pene-card-label">Slake Test 2</div><div class="pene-card-val">${slake2.toFixed(0)}<span class="pene-card-unit">% remain</span></div></div>`;
           html+=`</div>`;
-          if(vess)html+=`<div style="font-size:11px;color:var(--gray-mid);margin-bottom:6px">VESS Score: <strong style="color:var(--eerie)">${vess}</strong></div>`;
-          if(allPene.length>0){
+          if(reportOptions.fieldObsVess&&vess)html+=`<div style="font-size:11px;color:var(--gray-mid);margin-bottom:6px">VESS Score: <strong style="color:var(--eerie)">${vess}</strong></div>`;
+          if(reportOptions.fieldObsCompaction&&allPene.length>0){
           var over300=allPene.filter(function(p){return p.psi>=300;}).length;
           var pct300=Math.round(over300/allPene.length*100);
           var peneResult=peneRating(pct300);
@@ -799,6 +878,7 @@ function generateReport(){
         }
 
         // ── Results table ─────────────────────────────────────────────────
+        if(reportOptions.resultsTable){
         html+=`<table class="results-table">
           <thead><tr><th style="width:190px">Results</th><th style="width:80px">Value</th><th style="width:130px">Rating</th><th>Range Indicator</th></tr></thead>
           <tbody>`;
@@ -817,18 +897,21 @@ function generateReport(){
           html+='<tr style="'+mrowStyle+'"><td class="param">'+mlblHtml+'</td><td class="val">'+mdisp+(mv!==null&&munit?' '+munit:'')+'</td><td>'+mratingHtml+'</td><td>'+mrangeHtml+'</td></tr>';
         });
         html+=`</tbody></table>`;
+        }
 
         // ── Nutrient grid ─────────────────────────────────────────────────
+        if(reportOptions.nutrients){
         html+=`<div class="nutrient-grid">`;
         NUT_PARAMS.forEach(function(np){
           var nv=avg(ds,np[1]);
           html+=`<div class="nut-card"><div class="nut-label">${np[0]}</div><div class="nut-val">${nv!==null?nv.toFixed(1):'—'}<span class="nut-unit">${nv!==null&&np[2]?' '+np[2]:''}</span></div></div>`;
         });
         html+=`</div>`;
+        }
 
         // ── Aggregates ────────────────────────────────────────────────────
         var totAgg=avg(ds,'Total Aggregates'),macro=avg(ds,'Macroaggregates'),micro=avg(ds,'Microaggregates');
-        if(totAgg!==null||macro!==null){
+        if(reportOptions.aggregates&&(totAgg!==null||macro!==null)){
           html+=`<div class="agg-row">`;
           if(totAgg!==null)html+=`<div class="agg-item"><div class="al">Total Aggregates</div><div class="av">${totAgg.toFixed(1)}%</div></div>`;
           if(macro!==null)html+=`<div class="agg-item"><div class="al">Macroaggregates</div><div class="av">${macro.toFixed(1)}%</div></div>`;
@@ -846,6 +929,7 @@ function generateReport(){
         var plfaTF=avg(ds,'Total Fungi (PLFA ng/g)','Total Fungi');
         var plfaGP=avg(ds,'Gram+:Gram-');
         var plfaFDI=avg(ds,'Functional Group Diversity Index');
+        if(reportOptions.plfa){
         html+='<div class="plfa-section">';
         html+='<div class="plfa-title">PLFA Microbial Analysis</div>';
         // Key metrics row — always shown
@@ -881,10 +965,11 @@ function generateReport(){
           html+='<div style="font-size:11px;color:var(--gray-mid);padding:8px 0;font-style:italic">No PLFA analysis for this depth</div>';
         }
         html+='</div>';
+        }
 
         // ── Notes ─────────────────────────────────────────────────────────
         var cc=s0['Cover Crop Mix'],el=s0['Excess Lime'];
-        if((cc&&cc!=='N/A'&&cc!=='')||(el&&el!=='NONE'&&el!==''))html+=`<div class="notes-row">${cc&&cc!=='N/A'&&cc!==''?`Cover crop mix: ${cc}\u00a0\u00a0`:''}${el&&el!=='NONE'&&el!==''?`Excess lime: ${el}`:''}</div>`;
+        if(reportOptions.notes&&((cc&&cc!=='N/A'&&cc!=='')||(el&&el!=='NONE'&&el!=='')))html+=`<div class="notes-row">${cc&&cc!=='N/A'&&cc!==''?`Cover crop mix: ${cc}\u00a0\u00a0`:''}${el&&el!=='NONE'&&el!==''?`Excess lime: ${el}`:''}</div>`;
         html+=`</div>`;
         });
     }
@@ -892,6 +977,7 @@ function generateReport(){
   });
 
   // Standard Ranges
+  if(reportOptions.ranges){
   html+=`<div class="section-head" style="margin-top:2rem">Standard Ranges — Haney Soil Health Analysis</div>
   <div class="ref-table-wrap">
     <table class="results-table">
@@ -914,10 +1000,11 @@ function generateReport(){
   html+=`</tbody></table>
     <p style="font-size:10px;color:var(--gray-mid);margin-top:8px;font-style:italic">Source: Standard Ranges for Haney Soil Health Analysis</p>
   </div>`;
+  }
 
   document.getElementById('reportOutput').innerHTML=html;
   lastReportData={farmName,sampDate,selected,boundaryGroups:groups,selectedIds};
-  setStep(3);
+  if(switchToReport)setStep(3);
 }
 
 function sc(label,val,sub,rating){
@@ -981,6 +1068,7 @@ async function exportPDF(){
   y+=38;
 
   // Summary cards
+  if(reportOptions.summary){
   function aFarm(f){const v=csvData.map(s=>parseFloat(s[f])).filter(v=>!isNaN(v));return v.length?v.reduce((a,b)=>a+b,0)/v.length:null;}
   const aPH=aFarm('1:1 Soil pH'),aSHC=aFarm('Soil Health Calculation'),aOM=aFarm('Organic Matter');
   const cards=[['Avg Soil pH',aPH!=null?aPH.toFixed(1):'—',getRating('1:1 Soil pH',aPH)],['Soil Health Score',aSHC!=null?aSHC.toFixed(1):'—',getRating('Soil Health Calculation',aSHC)],['Avg Organic Matter',aOM!=null?aOM.toFixed(1)+'%':'—',getRating('Organic Matter',aOM)],['Field Boundaries',String(selected.length),null]];
@@ -992,8 +1080,10 @@ async function exportPDF(){
     if(rat){const rc=RC[rat],rl=RLABEL[rat],tw=doc.getTextWidth(rl)+6;doc.setFillColor(rc.bg[0],rc.bg[1],rc.bg[2]);doc.roundedRect(cx+5,y+17,tw,4,1,1,'F');doc.setTextColor(rc.tx[0],rc.tx[1],rc.tx[2]);doc.setFont('helvetica','bold');doc.setFontSize(5.5);t(rl,cx+8,y+20);}
   });
   y+=28;
+  }
 
   // Map
+  if(reportOptions.map){
   cp(55);sl('FIELD BOUNDARY MAP');
   let mnLon=1e9,mxLon=-1e9,mnLat=1e9,mxLat=-1e9;
   kmlData.forEach(b=>b.polygons.forEach(p=>p.forEach(([lo,la])=>{mnLon=Math.min(mnLon,lo);mxLon=Math.max(mxLon,lo);mnLat=Math.min(mnLat,la);mxLat=Math.max(mxLat,la);})));
@@ -1019,6 +1109,7 @@ async function exportPDF(){
     doc.circle(mx,my,1,'F');doc.setDrawColor(255,255,255);doc.setLineWidth(0.3);doc.circle(mx,my,1,'D');
   });
   y+=mH+6;
+  }
 
   // Per-boundary
   cp(20);sl('RESULTS BY FIELD BOUNDARY');
@@ -1046,18 +1137,19 @@ async function exportPDF(){
       const sl2=ap(ds,'%_of_soil_remaining_after_slake_test_2')||ap(ds,'slake_test_2');
       const vess=s0['vess_score']||'';
       const worm=ap(ds,'worm_count_test_1');
-      const infil=ap(ds,'water_infiltration_test_1');
-      const hasPene=allPene.length>0||sl1!==null||vess||worm!==null;
+      const infil=infiltrationSummary(ds);
+      const obsData={allPene:allPene,slake1:sl1,slake2:sl2,vess:vess,worm:worm,infil:infil};
+      const hasPene=fieldObservationHasVisibleData(obsData);
       if(hasPene){
         cp(30);y+=3;
         doc.setFillColor(MN[0],MN[1],MN[2]);doc.rect(ml,y,cw,5,'F');
         doc.setTextColor(WH[0],WH[1],WH[2]);doc.setFont('helvetica','bold');doc.setFontSize(6);t('FIELD OBSERVATIONS',ml+2,y+3.5);y+=7;
         // Summary row
         const obs=[];
-        if(worm!==null)obs.push(['Worm Count',worm.toFixed(0)+' /m²']);
-        if(infil!==null)obs.push(['Infiltration',infil.toFixed(0)+' sec']);
-        if(sl1!==null)obs.push(['Slake 1',sl1.toFixed(0)+'% remain']);
-        if(sl2!==null)obs.push(['Slake 2',sl2.toFixed(0)+'% remain']);
+        if(reportOptions.fieldObsWorm&&worm!==null)obs.push(['Worm Count',worm.toFixed(0)+' /m²']);
+        if(reportOptions.fieldObsInfiltration&&(infil.count>0||infil.over30>0))obs.push(['Infiltration',infil.label]);
+        if(reportOptions.fieldObsSlake1&&sl1!==null)obs.push(['Slake 1',sl1.toFixed(0)+'% remain']);
+        if(reportOptions.fieldObsSlake2&&sl2!==null)obs.push(['Slake 2',sl2.toFixed(0)+'% remain']);
         if(obs.length>0){
           const oW=(cw-(obs.length-1)*2)/obs.length;
           obs.forEach(function([lbl,val],oi){
@@ -1067,8 +1159,8 @@ async function exportPDF(){
           });
           y+=15;
         }
-        if(vess){cp(8);doc.setTextColor(GR[0],GR[1],GR[2]);doc.setFont('helvetica','normal');doc.setFontSize(7);t('VESS Score: '+vess,ml+2,y+4);y+=8;}
-        if(allPene.length>0){
+        if(reportOptions.fieldObsVess&&vess){cp(8);doc.setTextColor(GR[0],GR[1],GR[2]);doc.setFont('helvetica','normal');doc.setFontSize(7);t('VESS Score: '+vess,ml+2,y+4);y+=8;}
+        if(reportOptions.fieldObsCompaction&&allPene.length>0){
           const over=allPene.filter(function(p){return p.psi>=300;}).length;
           const pct300=Math.round(over/allPene.length*100);
           const[rLabel]=peneRating(pct300);
@@ -1098,6 +1190,7 @@ async function exportPDF(){
         y+=3;
       }
 
+      if(reportOptions.resultsTable){
       cp(60);
       doc.setFillColor(GL[0],GL[1],GL[2]);doc.rect(ml,y,cw,7,'F');
       doc.setTextColor(MN[0],MN[1],MN[2]);doc.setFont('helvetica','bold');doc.setFontSize(7);
@@ -1129,7 +1222,9 @@ async function exportPDF(){
         if(v!==null&&rat){var pct2=barPct(rk,v)/100;doc.setFillColor(BO[0],BO[1],BO[2]);doc.roundedRect(colX[3]+2,y+2.5,bMW,2.5,.8,.8,'F');doc.setFillColor(RC2[rat][0],RC2[rat][1],RC2[rat][2]);doc.roundedRect(colX[3]+2,y+2.5,Math.max(1.5,bMW*pct2),2.5,.8,.8,'F');}
         y+=7;
       });
+      }
       // Nutrients — core (6 cards)
+      if(reportOptions.nutrients){
       cp(20);y+=3;
       const nW=(cw-5*2)/6;
       NUT_PARAMS.forEach(function(np,ni){
@@ -1139,10 +1234,11 @@ async function exportPDF(){
         doc.setTextColor(EE[0],EE[1],EE[2]);doc.setFont('helvetica','bold');doc.setFontSize(9);t(v!==null?v.toFixed(1):'—',nx+3,y+11);
       });
       y+=18;
+      }
 
       // Aggregates
       var totAgg=ap(ds,'Total Aggregates'),macro2=ap(ds,'Macroaggregates'),micro2=ap(ds,'Microaggregates');
-      if(totAgg!==null||macro2!==null){
+      if(reportOptions.aggregates&&(totAgg!==null||macro2!==null)){
         cp(14);y+=3;
         var aggItems=[];
         if(totAgg!==null)aggItems.push(['Total Aggregates',totAgg.toFixed(1)+'%']);
@@ -1158,6 +1254,7 @@ async function exportPDF(){
         y+=15;
       }
       // PLFA — always show summary, detail when data present
+      if(reportOptions.plfa){
       var pgv=PLFA_GRID.map(function(pg){return[pg[0],ap(ds,pg[1],pg[2]),pg[3]];});
       var ppv=PLFA_PCT.map(function(pp){return[pp[0],ap(ds,pp[1],pp[2])];});
       var hPLFA=pgv.some(function(p){return p[1]!==null;});
@@ -1209,10 +1306,11 @@ async function exportPDF(){
         cp(8);doc.setTextColor(GR[0],GR[1],GR[2]);doc.setFont('helvetica','italic');doc.setFontSize(7);
         t('No PLFA analysis for this depth',ml+2,y+4);y+=8;
       }
+      }
 
             // Notes
       var cc=s0['Cover Crop Mix'],el=s0['Excess Lime'];
-      if((cc&&cc!=='N/A'&&cc!=='')||(el&&el!=='NONE'&&el!=='')){
+      if(reportOptions.notes&&((cc&&cc!=='N/A'&&cc!=='')||(el&&el!=='NONE'&&el!==''))){
         cp(8);doc.setTextColor(GR[0],GR[1],GR[2]);doc.setFont('helvetica','italic');doc.setFontSize(7);
         var note='';if(cc&&cc!=='N/A'&&cc!=='')note+='Cover crop mix: '+cc+'  ';if(el&&el!=='NONE'&&el!=='')note+='Excess lime: '+el;
         t(note,ml+2,y+4);y+=9;
@@ -1223,6 +1321,7 @@ async function exportPDF(){
   });
 
   // Haney ranges
+  if(reportOptions.ranges){
   cp(65);sl('STANDARD RANGES — HANEY SOIL HEALTH ANALYSIS');
   var rC=[62,20,26,26,26,22],rX=[ml];rC.slice(0,-1).forEach(function(_,i){rX.push(rX[i]+rC[i]);});
   var rH2=['Results','Low','Below Avg','Average','Above Avg','High'];
@@ -1254,6 +1353,7 @@ async function exportPDF(){
   y+=5;
   doc.setTextColor(GR[0],GR[1],GR[2]);doc.setFont('helvetica','italic');doc.setFontSize(6.5);
   t('Source: Standard Ranges for Haney Soil Health Analysis · SCI Soil Health Report',ml,y);
+  }
   df();
   doc.save('SCI_Soil_Health_Report_'+farmName.replace(/[^a-z0-9]/gi,'_')+'.pdf');
   btn.innerHTML='<svg viewBox="0 0 14 14" fill="none" style="width:14px;height:14px"><path d="M7 1v8M4 6l3 3 3-3M2 10v1a1 1 0 001 1h8a1 1 0 001-1v-1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> Export PDF';
