@@ -26,6 +26,8 @@ header{background:var(--midnight);padding:0 1.5rem;height:82px;display:flex;alig
 .header-right{display:flex;align-items:center;gap:12px;flex:0 0 auto;margin-left:auto;}
 .sci-site-link{display:inline-flex;align-items:center;font-size:11px;font-weight:600;font-family:var(--font-head);color:rgba(255,255,255,.82);text-decoration:none;letter-spacing:.03em;}
 .sci-site-link:hover{color:var(--white);}
+.whitepaper-link{background:rgba(255,255,255,.11);border:1px solid rgba(255,255,255,.18);border-radius:7px;padding:6px 10px;}
+.whitepaper-link:hover{background:rgba(255,255,255,.18);}
 
 .btn-export{display:none;align-items:center;gap:6px;background:var(--teal);color:var(--midnight-dk);border:none;border-radius:7px;padding:6px 14px;font-family:var(--font-head);font-size:12px;font-weight:600;cursor:pointer;transition:background .2s;}
 .btn-export:hover{background:var(--teal-lt);}
@@ -272,6 +274,7 @@ header{background:var(--midnight);padding:0 1.5rem;height:82px;display:flex;alig
     <span class="logo-name">SCI Soil Health Report</span>
   </div>
   <div class="header-right">
+    <a href="SCI_Soil_Health_Report_Tool_White_Paper.pdf" target="_blank" rel="noopener" class="sci-site-link whitepaper-link">View white paper</a>
     <a href="https://www.soilclimateinitiative.org/" target="_blank" rel="noopener" class="sci-site-link">soilclimateinitiative.org</a>
     <button class="btn-export" id="exportBtn" onclick="exportPDF()">
       <svg viewBox="0 0 14 14" fill="none"><path d="M7 1v8M4 6l3 3 3-3M2 10v1a1 1 0 001 1h8a1 1 0 001-1v-1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -914,7 +917,7 @@ function generateReport(switchToReport=true){
         if(hasPene){
           html+=`<div class="pene-section"><div class="pene-title">Field Observations</div>`;
           html+=`<div class="pene-grid">`;
-          if(reportOptions.fieldObsWorm&&worm!==null)html+=`<div class="pene-card"><div class="pene-card-label">Worm Count</div><div class="pene-card-val">${worm.toFixed(0)}<span class="pene-card-unit"> per m\u00b2</span></div></div>`;
+          if(reportOptions.fieldObsWorm&&worm!==null)html+=`<div class="pene-card"><div class="pene-card-label">Worm Count</div><div class="pene-card-val">${worm.toFixed(0)}<span class="pene-card-unit"> per ft\u00b3</span></div></div>`;
           if((reportOptions.fieldObsInfiltrationA||reportOptions.fieldObsInfiltration)&&(infil.a.count>0||infil.a.over30>0))html+=`<div class="pene-card"><div class="pene-card-label">Infiltration A</div><div class="pene-card-val">${infil.a.label}<span class="pene-card-unit">${infil.a.count>0?' avg':''}</span></div></div>`;
           if((reportOptions.fieldObsInfiltrationB||reportOptions.fieldObsInfiltration)&&(infil.b.count>0||infil.b.over30>0))html+=`<div class="pene-card"><div class="pene-card-label">Infiltration B</div><div class="pene-card-val">${infil.b.label}<span class="pene-card-unit">${infil.b.count>0?' avg':''}</span></div></div>`;
           if(reportOptions.fieldObsSlake1&&slake1!==null)html+=`<div class="pene-card"><div class="pene-card-label">Slake Test 1</div><div class="pene-card-val">${slake1.toFixed(0)}<span class="pene-card-unit">% remain</span></div></div>`;
@@ -1206,7 +1209,7 @@ async function exportPDF(){
         doc.setTextColor(WH[0],WH[1],WH[2]);doc.setFont('helvetica','bold');doc.setFontSize(6);t('FIELD OBSERVATIONS',ml+2,y+3.5);y+=7;
         // Summary row
         const obs=[];
-        if(reportOptions.fieldObsWorm&&worm!==null)obs.push(['Worm Count',worm.toFixed(0)+' /m²']);
+        if(reportOptions.fieldObsWorm&&worm!==null)obs.push(['Worm Count',worm.toFixed(0)+' /ft³']);
         if((reportOptions.fieldObsInfiltrationA||reportOptions.fieldObsInfiltration)&&(infil.a.count>0||infil.a.over30>0))obs.push(['Infiltration A',infil.a.label]);
         if((reportOptions.fieldObsInfiltrationB||reportOptions.fieldObsInfiltration)&&(infil.b.count>0||infil.b.over30>0))obs.push(['Infiltration B',infil.b.label]);
         if(reportOptions.fieldObsSlake1&&sl1!==null)obs.push(['Slake 1',sl1.toFixed(0)+'% remain']);
