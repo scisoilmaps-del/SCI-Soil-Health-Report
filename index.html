@@ -376,8 +376,8 @@ const SCI_LOGO_B64='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAABZAAAAJeCAYAAA
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
 let csvData=null, kmlData=null, boundaryState={}, lastReportData=null, currentStep=1;
-const REPORT_OPTION_LABELS={summary:'Summary cards',map:'Field boundary map',fieldObsWorm:'Worm count',fieldObsInfiltration:'Water infiltration',fieldObsSlake1:'Slake test 1',fieldObsSlake2:'Slake test 2',fieldObsVess:'VESS score',fieldObsCompaction:'Compaction / penetrometer',resultsTable:'Haney results table',nutrients:'Nutrient cards',aggregates:'Aggregate stability',plfa:'PLFA microbial analysis',notes:'Notes',ranges:'Standard range tables'};
-let reportOptions={summary:true,map:true,fieldObsWorm:true,fieldObsInfiltration:true,fieldObsSlake1:true,fieldObsSlake2:true,fieldObsVess:true,fieldObsCompaction:true,resultsTable:true,nutrients:true,aggregates:true,plfa:true,notes:true,ranges:true};
+const REPORT_OPTION_LABELS={summary:'Summary cards',map:'Field boundary map',fieldObsWorm:'Worm count',fieldObsInfiltrationA:'Water infiltration A',fieldObsInfiltrationB:'Water infiltration B',fieldObsSlake1:'Slake test 1',fieldObsSlake2:'Slake test 2',fieldObsVess:'VESS score',fieldObsCompaction:'Compaction / penetrometer',resultsTable:'Haney results table',nutrients:'Nutrient cards',aggregates:'Aggregate stability',plfa:'PLFA microbial analysis',notes:'Notes',ranges:'Standard range tables'};
+let reportOptions={summary:true,map:true,fieldObsWorm:true,fieldObsInfiltrationA:true,fieldObsInfiltrationB:true,fieldObsInfiltration:true,fieldObsSlake1:true,fieldObsSlake2:true,fieldObsVess:true,fieldObsCompaction:true,resultsTable:true,nutrients:true,aggregates:true,plfa:true,notes:true,ranges:true};
 
 // ── RANGES ────────────────────────────────────────────────────────────────────
 const RANGES={
@@ -697,15 +697,45 @@ function getPeneData(s){
   const vals=[];
   depths.forEach((d,i)=>{
     const keys=[`penetrometer_depth_${i+1}_inches`,`penetrometer_depth_${d}`];
-    for(const k of keys){if(s[k]!==undefined&&s[k]!==''&&!isNaN(parseFloat(s[k]))){vals.push({depth:i+1,psi:parseFloat(s[k])});break;}}
+    for(const k of keys){
+      if(s[k]!==undefined&&s[k]!==''&&!isNaN(parseFloat(s[k]))){
+        const raw=parseFloat(s[k]);
+        // Spreadsheet penetrometer values are inches pushed before the probe
+        // reaches the 300 psi maximum. Smaller numbers mean 300 psi was
+        // reached sooner, so compaction is shallower/more limiting.
+        vals.push({reading:i+1,depthTo300:raw});
+        break;
+      }
+    }
   });
   return vals;
 }
-function peneRating(pctOver300){
-  if(pctOver300<30)return['Little–None','pene-rating-ok'];
-  if(pctOver300<50)return['Slight','pene-rating-mod'];
-  if(pctOver300<75)return['Moderate','pene-rating-mod'];
+function formatDepthInches(v){
+  if(v===null||v===undefined||isNaN(v))return '';
+  return (Math.round(v*100)/100).toString();
+}
+function avgPeneDepth(vals){
+  if(!vals||!vals.length)return null;
+  return vals.reduce(function(sum,p){return sum+p.depthTo300;},0)/vals.length;
+}
+function peneCompactionStats(vals){
+  if(!vals||!vals.length)return {count:0,exceedCount:0,exceedPct:null};
+  // Each spreadsheet value is the depth, in inches, where the probe reached
+  // the 300 psi limit. A point is counted as compacted when 300 psi is
+  // reached within the top 15 inches. This aligns the report rating with
+  // the penetrometer table: % of points in the top 15 inches >300 psi.
+  const exceedCount=vals.filter(function(p){return p.depthTo300<=15;}).length;
+  return {count:vals.length,exceedCount:exceedCount,exceedPct:Math.round(exceedCount/vals.length*100)};
+}
+function peneRatingFromPct(pct){
+  if(pct===null||pct===undefined||isNaN(pct))return['No data','pene-rating-mod'];
+  if(pct<30)return['Little–None','pene-rating-ok'];
+  if(pct<=50)return['Slight','pene-rating-mod'];
+  if(pct<=75)return['Moderate','pene-rating-mod'];
   return['Severe','pene-rating-bad'];
+}
+function penePointColor(depthTo300){
+  return depthTo300<=15?'#b91c1c':'#059669';
 }
 
 function reportControlsHTML(){
@@ -716,10 +746,12 @@ function setReportOption(key,on){
   if(lastReportData)generateReport(false);
 }
 function anyFieldObservationOn(){
-  return !!(reportOptions.fieldObsWorm||reportOptions.fieldObsInfiltration||reportOptions.fieldObsSlake1||reportOptions.fieldObsSlake2||reportOptions.fieldObsVess||reportOptions.fieldObsCompaction);
+  return !!(reportOptions.fieldObsWorm||reportOptions.fieldObsInfiltrationA||reportOptions.fieldObsInfiltrationB||reportOptions.fieldObsInfiltration||reportOptions.fieldObsSlake1||reportOptions.fieldObsSlake2||reportOptions.fieldObsVess||reportOptions.fieldObsCompaction);
 }
 function fieldObservationHasVisibleData(o){
-  return !!((reportOptions.fieldObsWorm&&o.worm!==null)||(reportOptions.fieldObsInfiltration&&(o.infil.count>0||o.infil.over30>0))||(reportOptions.fieldObsSlake1&&o.slake1!==null)||(reportOptions.fieldObsSlake2&&o.slake2!==null)||(reportOptions.fieldObsVess&&o.vess)||(reportOptions.fieldObsCompaction&&o.allPene.length>0));
+  const showA=(reportOptions.fieldObsInfiltrationA||reportOptions.fieldObsInfiltration)&&(o.infil.a.count>0||o.infil.a.over30>0);
+  const showB=(reportOptions.fieldObsInfiltrationB||reportOptions.fieldObsInfiltration)&&(o.infil.b.count>0||o.infil.b.over30>0);
+  return !!((reportOptions.fieldObsWorm&&o.worm!==null)||showA||showB||(reportOptions.fieldObsSlake1&&o.slake1!==null)||(reportOptions.fieldObsSlake2&&o.slake2!==null)||(reportOptions.fieldObsVess&&o.vess)||(reportOptions.fieldObsCompaction&&o.allPene.length>0));
 }
 function yesLike(v){return /^(yes|y|true|1|over|over 30|>30|>\s*30|30\+|over thirty)$/i.test(String(v||'').trim());}
 function getAnyValue(obj,names){
@@ -732,21 +764,30 @@ function getAnyValue(obj,names){
   return '';
 }
 function infiltrationOver30(s,i){
-  const exact=[
+  // The CSV uses one over-30 flag per infiltration reading:
+  // A-1 => test 1, A-2 => test 2, B-1 => test 3, B-2 => test 4.
+  const exactByTest={
+    1:['infiltration_A-1_>_30_minutes','infiltration_A-1_>_30_minutes ','infiltration_a_1_over_30_minutes','infiltration_a-1_over_30_minutes'],
+    2:['infiltration_A-2_>_30_minutes','infiltration_A-2_>_30_minutes ','infiltration_a_2_over_30_minutes','infiltration_a-2_over_30_minutes'],
+    3:['infiltration_B_1_>_30_minutes','infiltration_B_1_>_30_minutes ','infiltration_b_1_over_30_minutes','infiltration_b-1_over_30_minutes'],
+    4:['infiltration_B_2_>_30_minutes','infiltration_B_2_>_30_minutes ','infiltration_b_2_over_30_minutes','infiltration_b-2_over_30_minutes']
+  };
+  const generic=[
     `water_infiltration_test_${i}_over_30_minutes`,`water_infiltration_test_${i}_over_30_min`,
     `over_30_minutes_water_infiltration_test_${i}`,`over_30_min_water_infiltration_test_${i}`,
     `infiltration_test_${i}_over_30_minutes`,`infiltration_reading_${i}_over_30_minutes`,
     `water_infiltration_over_30_minutes_${i}`,`Water Infiltration Test ${i} Over 30 Minutes`,
     `Water Infiltration Reading ${i} Over 30 Minutes`,`Over 30 Minutes Water Infiltration Test ${i}`
   ];
-  if(yesLike(getAnyValue(s,exact)))return true;
+  if(yesLike(getAnyValue(s,(exactByTest[i]||[]).concat(generic))))return true;
+  const needle=(i===1?'a1':i===2?'a2':i===3?'b1':'b2');
   const keys=Object.keys(s);
   return keys.some(function(k){
     const nk=String(k).toLowerCase().replace(/[^a-z0-9]/g,'');
-    return nk.includes('infil')&&nk.includes(String(i))&&(nk.includes('over30')||nk.includes('30min')||nk.includes('30minute')||nk.includes('thirty'))&&yesLike(s[k]);
+    return nk.includes('infil')&&nk.includes(needle)&&(nk.includes('over30')||nk.includes('30min')||nk.includes('30minute')||nk.includes('thirty'))&&yesLike(s[k]);
   });
 }
-function infiltrationSeconds(s,i){
+function infiltrationMinutes(s,i){
   const exact=[
     `water_infiltration_test_${i}`,`Water Infiltration Test ${i}`,`Water infiltration test ${i}`,
     `water_infiltration_reading_${i}`,`Water Infiltration Reading ${i}`,
@@ -756,24 +797,42 @@ function infiltrationSeconds(s,i){
   if(raw===''||isNaN(parseFloat(raw))){
     for(const k of Object.keys(s)){
       const nk=String(k).toLowerCase().replace(/[^a-z0-9]/g,'');
-      if(nk.includes('infil')&&nk.includes(String(i))&&!nk.includes('over')&&!nk.includes('30min')&&!nk.includes('30minute')){raw=s[k];break;}
+      if(nk.includes('waterinfiltrationtest')&&nk.includes(String(i))){raw=s[k];break;}
     }
   }
-  const sec=parseFloat(raw);
-  return !isNaN(sec)&&sec>0?sec:null;
+  const min=parseFloat(raw);
+  return !isNaN(min)&&min>0?min:null;
 }
 function infiltrationSummary(samples){
-  const rates=[],secs=[];let over30=0;
-  samples.forEach(function(s){
-    for(let i=1;i<=4;i++){
-      if(infiltrationOver30(s,i)){over30++;continue;}
-      const sec=infiltrationSeconds(s,i);
-      if(sec!==null){secs.push(sec);rates.push(3600/sec);}
-    }
-  });
+  // Spreadsheet infiltration fields are elapsed minutes for a 1-inch NRCS ring test.
+  // Convert each reading to inches/hour as rate = 60 / elapsed_minutes.
+  // This is the same PDF formula as 3600 / elapsed_seconds after converting seconds to minutes.
+  // The tool keeps the existing >30 minute behavior: checked/flagged readings are counted
+  // as over-30 and are not converted into a numeric rate.
+  // Tests 1-2 are paired at location A; tests 3-4 are paired at location B.
   const mean=function(a){return a.length?a.reduce(function(x,y){return x+y;},0)/a.length:null;};
-  const rate=mean(rates),secAvg=mean(secs);
-  return {rate:rate,seconds:secAvg,count:rates.length,over30:over30,label:rate!==null?(rate<10?rate.toFixed(2):rate.toFixed(1))+' in/hr':(over30?'>30 min':'')};
+  const fmt=function(rate,over30){return rate!==null?(rate<10?rate.toFixed(2):rate.toFixed(1))+' in/hr':(over30?'>30 min':'');};
+  const buildPair=function(pair){
+    const pairRates=[],allRates=[],minutes=[];let over30=0;
+    samples.forEach(function(s){
+      const rates=[];
+      pair.forEach(function(i){
+        if(infiltrationOver30(s,i)){over30++;return;}
+        const min=infiltrationMinutes(s,i);
+        if(min!==null){minutes.push(min);rates.push(60/min);allRates.push(60/min);}
+      });
+      if(rates.length){pairRates.push(mean(rates));}
+    });
+    const rate=mean(pairRates.length?pairRates:allRates),minAvg=mean(minutes);
+    return {rate:rate,minutes:minAvg,count:allRates.length,over30:over30,label:fmt(rate,over30)};
+  };
+  const a=buildPair([1,2]);
+  const b=buildPair([3,4]);
+  const combinedRates=[];
+  if(a.rate!==null)combinedRates.push(a.rate);
+  if(b.rate!==null)combinedRates.push(b.rate);
+  const rate=mean(combinedRates),count=a.count+b.count,over30=a.over30+b.over30;
+  return {a:a,b:b,rate:rate,count:count,over30:over30,label:fmt(rate,over30)};
 }
 
 // ── GENERATE REPORT (HTML) ────────────────────────────────────────────────────
@@ -856,21 +915,22 @@ function generateReport(switchToReport=true){
           html+=`<div class="pene-section"><div class="pene-title">Field Observations</div>`;
           html+=`<div class="pene-grid">`;
           if(reportOptions.fieldObsWorm&&worm!==null)html+=`<div class="pene-card"><div class="pene-card-label">Worm Count</div><div class="pene-card-val">${worm.toFixed(0)}<span class="pene-card-unit"> per m\u00b2</span></div></div>`;
-          if(reportOptions.fieldObsInfiltration&&(infil.count>0||infil.over30>0))html+=`<div class="pene-card"><div class="pene-card-label">Infiltration</div><div class="pene-card-val">${infil.label}<span class="pene-card-unit">${infil.count>0?' avg':''}</span></div></div>`;
+          if((reportOptions.fieldObsInfiltrationA||reportOptions.fieldObsInfiltration)&&(infil.a.count>0||infil.a.over30>0))html+=`<div class="pene-card"><div class="pene-card-label">Infiltration A</div><div class="pene-card-val">${infil.a.label}<span class="pene-card-unit">${infil.a.count>0?' avg':''}</span></div></div>`;
+          if((reportOptions.fieldObsInfiltrationB||reportOptions.fieldObsInfiltration)&&(infil.b.count>0||infil.b.over30>0))html+=`<div class="pene-card"><div class="pene-card-label">Infiltration B</div><div class="pene-card-val">${infil.b.label}<span class="pene-card-unit">${infil.b.count>0?' avg':''}</span></div></div>`;
           if(reportOptions.fieldObsSlake1&&slake1!==null)html+=`<div class="pene-card"><div class="pene-card-label">Slake Test 1</div><div class="pene-card-val">${slake1.toFixed(0)}<span class="pene-card-unit">% remain</span></div></div>`;
           if(reportOptions.fieldObsSlake2&&slake2!==null)html+=`<div class="pene-card"><div class="pene-card-label">Slake Test 2</div><div class="pene-card-val">${slake2.toFixed(0)}<span class="pene-card-unit">% remain</span></div></div>`;
           html+=`</div>`;
           if(reportOptions.fieldObsVess&&vess)html+=`<div style="font-size:11px;color:var(--gray-mid);margin-bottom:6px">VESS Score: <strong style="color:var(--eerie)">${vess}</strong></div>`;
           if(reportOptions.fieldObsCompaction&&allPene.length>0){
-          var over300=allPene.filter(function(p){return p.psi>=300;}).length;
-          var pct300=Math.round(over300/allPene.length*100);
-          var peneResult=peneRating(pct300);
-          html+=`<div style="font-size:11px;color:var(--gray-mid);margin-bottom:8px">Compaction: ${pct300}% of readings \u2265300 psi \u00a0<span class="${peneResult[1]}">${peneResult[0]}</span></div>`;
+          var avgDepth=avgPeneDepth(allPene);
+          var compactionStats=peneCompactionStats(allPene);
+          var peneResult=peneRatingFromPct(compactionStats.exceedPct);
+          html+=`<div style="font-size:11px;color:var(--gray-mid);margin-bottom:8px">Compaction: 300 psi reached at ${formatDepthInches(avgDepth)} in avg; ${compactionStats.exceedPct}% of points reached 300 psi in the top 15 in &nbsp;<span class="${peneResult[1]}">${peneResult[0]}</span></div>`;
           html+=`<div class="pene-chart">`;
           allPene.forEach(function(p){
-            var ppct=Math.min(100,(p.psi/500)*100);
-            var pcol=p.psi<200?'#059669':p.psi<300?'#d97706':'#b91c1c';
-            html+=`<div class="pene-col"><div class="pene-col-val">${p.psi}</div><div class="pene-col-bar-wrap"><div class="pene-col-bar" style="height:${ppct.toFixed(0)}%;background:${pcol}"></div></div><div class="pene-col-label">${p.depth}"</div></div>`;
+            var ppct=Math.max(2,Math.min(100,(p.depthTo300/15)*100));
+            var pcol=penePointColor(p.depthTo300);
+            html+=`<div class="pene-col"><div class="pene-col-val">${formatDepthInches(p.depthTo300)}</div><div class="pene-col-bar-wrap"><div class="pene-col-bar" style="height:${ppct.toFixed(0)}%;background:${pcol}"></div></div><div class="pene-col-label">R${p.reading}</div></div>`;
           });
           html+=`</div>`;
           }
@@ -1147,7 +1207,8 @@ async function exportPDF(){
         // Summary row
         const obs=[];
         if(reportOptions.fieldObsWorm&&worm!==null)obs.push(['Worm Count',worm.toFixed(0)+' /m²']);
-        if(reportOptions.fieldObsInfiltration&&(infil.count>0||infil.over30>0))obs.push(['Infiltration',infil.label]);
+        if((reportOptions.fieldObsInfiltrationA||reportOptions.fieldObsInfiltration)&&(infil.a.count>0||infil.a.over30>0))obs.push(['Infiltration A',infil.a.label]);
+        if((reportOptions.fieldObsInfiltrationB||reportOptions.fieldObsInfiltration)&&(infil.b.count>0||infil.b.over30>0))obs.push(['Infiltration B',infil.b.label]);
         if(reportOptions.fieldObsSlake1&&sl1!==null)obs.push(['Slake 1',sl1.toFixed(0)+'% remain']);
         if(reportOptions.fieldObsSlake2&&sl2!==null)obs.push(['Slake 2',sl2.toFixed(0)+'% remain']);
         if(obs.length>0){
@@ -1161,16 +1222,16 @@ async function exportPDF(){
         }
         if(reportOptions.fieldObsVess&&vess){cp(8);doc.setTextColor(GR[0],GR[1],GR[2]);doc.setFont('helvetica','normal');doc.setFontSize(7);t('VESS Score: '+vess,ml+2,y+4);y+=8;}
         if(reportOptions.fieldObsCompaction&&allPene.length>0){
-          const over=allPene.filter(function(p){return p.psi>=300;}).length;
-          const pct300=Math.round(over/allPene.length*100);
-          const[rLabel]=peneRating(pct300);
+          const avgDepth=avgPeneDepth(allPene);
+          const compactionStats=peneCompactionStats(allPene);
+          const[rLabel]=peneRatingFromPct(compactionStats.exceedPct);
           cp(8);doc.setTextColor(GR[0],GR[1],GR[2]);doc.setFont('helvetica','normal');doc.setFontSize(7);
-          t('Compaction: '+pct300+'% of readings ≥300 psi  ['+rLabel+']',ml+2,y+4);y+=8;
-          // Column chart — bars growing upward, depth labels on x-axis
+          t('Compaction: 300 psi at '+formatDepthInches(avgDepth)+' in avg; '+compactionStats.exceedPct+'% of points in top 15 in  ['+rLabel+']',ml+2,y+4);y+=8;
+          // Column chart — values are inches pushed before 300 psi was reached
           var chartH=18, chartW=(cw-4)/allPene.length, chartX=ml;
           allPene.forEach(function(p){
-            var barH=Math.min(chartH,(p.psi/500)*chartH);
-            var fc=p.psi<200?[5,150,105]:p.psi<300?[217,119,6]:[185,28,28];
+            var barH=Math.max(1,Math.min(chartH,(p.depthTo300/15)*chartH));
+            var fc=p.depthTo300<=15?[185,28,28]:[5,150,105];
             // Background track
             doc.setFillColor(BO[0],BO[1],BO[2]);
             doc.rect(chartX+1,y,chartW-2,chartH,'F');
@@ -1179,10 +1240,10 @@ async function exportPDF(){
             doc.rect(chartX+1,y+(chartH-barH),chartW-2,barH,'F');
             // PSI label above bar
             doc.setTextColor(GR[0],GR[1],GR[2]);doc.setFont('helvetica','normal');doc.setFontSize(4.5);
-            t(String(p.psi),chartX+chartW/2,y-1,{align:'center'});
+            t(formatDepthInches(p.depthTo300),chartX+chartW/2,y-1,{align:'center'});
             // Depth label below
             doc.setFontSize(5);
-            t(p.depth+'"',chartX+chartW/2,y+chartH+4,{align:'center'});
+            t('R'+p.reading,chartX+chartW/2,y+chartH+4,{align:'center'});
             chartX+=chartW;
           });
           y+=chartH+8;
